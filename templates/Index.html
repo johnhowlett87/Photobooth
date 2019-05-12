@@ -1,0 +1,8 @@
+<!doctype html>
+<title>Hello from Flask</title>
+<meta http-equiv="refresh" content="5" >
+{% if filename %}
+  <h1>some text <img  style='height:100% ; width:100%; object-fit:contain' src="./{{ filename }}">more text!</h1>
+{% else %}
+  <h1>no image for whatever reason</h1>
+{% endif %}

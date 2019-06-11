@@ -11,6 +11,8 @@ import os
 import glob
 import time
 import datetime
+import tkinter as tk
+from PIL import ImageTk, Image
 
 # This is the class for images. We'll to storing these in a dict. 
 # each object will have methods to call the full path, current view count and image name (for the dict key)
@@ -66,7 +68,7 @@ class photobooth:
         return True
 
     def FindNextPhoto(self):
-        low_val=999999
+        low_val=1
         lowest=''
         for k in self.catalog.keys():
             vc= self.catalog[k].getViewCount()
@@ -75,12 +77,37 @@ class photobooth:
             else:
                 lowest=k
                 low_val= vc
-            return lowest
+        return self.catalog[lowest]
+
+win = tk.Tk()
+win.geometry('800x500')  # set window size
+win.resizable(0, 0)  # fix window
+panel = tk.Label(win)
+panel.pack()
+
+def next_img():
+    try:
+        img =  p.FindNextPhoto() # get the next image
+        img.incrementViewCount()
+        path=img.path
+    except StopIteration:
+        return  # if there are no more images, do nothing
+
+    # load the image and display it
+    im=Image.open(path)
+    sm_im=im.resize((400, 400) , Image.ANTIALIAS)
+    img = ImageTk.PhotoImage(sm_im)
+    print("Displaying " , path)
+    panel.img = img  # keep a reference so it's not garbage collected
+    panel['image'] = img
+    win.after(1000,next_img)
 
 
-if __name__=='__main__':
-    p=photobooth()
-    p.Collect_Existing_Images()
-    p.PrintListPhotos()
-    print(p.FindNextPhoto())
+
+p=photobooth()
+p.Collect_Existing_Images()
+p.PrintListPhotos()
+next_img()
+
+win.mainloop()
 

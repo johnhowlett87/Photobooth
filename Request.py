@@ -7,6 +7,7 @@ import time
 import glob
 import os
 import re
+from photoboothClass import Photobooth
 
 
 from flask import Flask, render_template, url_for
@@ -94,5 +95,7 @@ def Get_Images():
 with app.test_request_context():
     print(url_for('serve'))
 
+
+
 if __name__=='__main__':
-    app.run(debug=True)
+    app.run(debug=True)``

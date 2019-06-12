@@ -11,11 +11,26 @@ import os
 import glob
 import time
 import datetime
-import tkinter as tk
 from PIL import ImageTk, Image
+import requests
+from bs4 import BeautifulSoup
+import json
+import shutil
+import os.path
+import re
+import operator
+import sys
 
-# This is the class for images. We'll to storing these in a dict. 
-# each object will have methods to call the full path, current view count and image name (for the dict key)
+from PyQt5.QtCore import Qt
+
+""" from PyQt5.QtCore import Qt, QRegExp, QRunnable, QThreadPool, QObject, pyqtSlot, pyqtSignal, QItemSelectionModel
+from PyQt5.QtGui import QIcon, QColor, QPalette, QIntValidator, QPixmap, QKeySequence
+from PyQt5.QtWidgets import QApplication, QWidget, QGridLayout, QGroupBox, QHBoxLayout, QPushButton, QLineEdit, \
+    QLabel, QShortcut, QComboBox, QCheckBox, QFileDialog, QTableWidget, QTableView, QTabWidget, \
+    QTableWidgetItem, QStyleFactory, QListWidgetItem, QScrollArea """
+
+# This is the class for images. We'll to storing these in a photobooth object. 
+# each image object will have methods to call the full path, current view count and image name (for the dict key)
 # We'll also need to increment the view count.
 class image:
     'Image class'
@@ -36,19 +51,47 @@ class image:
 
     def incrementViewCount(self):
         self.view_count = self.view_count + 1
-    
+
+#Nice GUI from Eddie
+class App(QWidget):
+
+    def __init__(self):
+        super().__init__()
+        screen = app.primaryScreen()
+        rect = screen.availableGeometry()
+
+        self.title = 'Wedding Photos!'
+        self.width = rect.width()
+        self.height = rect.height()
+
+        self.init_ui()
+
+    def init_ui(self):
+        """window title and icon"""
+        self.setWindowTitle(self.title)
+        #self.setWindowIcon(QIcon(r'.\ghd_icon.jpg'))
+
+        """window geometry"""
+        self.setGeometry(0, 0, floor(self.width * 100 / 100), floor(self.height * 100 / 100))
+
+        self.grid = QGridLayout()
+        self.window = QLabel()
+
+        self.grid.addWidget(self.window)
+        self.update_image()
+        self.setLayout(self.grid)
+
+    def update_image(self):
+            self.window = self.formula.setPixmap(QPixmap("./static/images\P1060869.JPG")) 
 
 class photobooth:
     'Photobooth class'
 
     def __init__(self):
-        self.catalog = dict()
-    
-    def getCatalog(self):
-        return self.catalog
-    
+        self.catalog = list()
+      
     def addToCatalog(self, image):
-        self.catalog[image.getName()] = image
+        self.catalog.append(image)
 
     # There will be some existing images which we'll need to load in first. 
     # This will also allow the restart of the application without losing images.
@@ -67,47 +110,96 @@ class photobooth:
             print(self.catalog[img].getName(), "\t" , self.catalog[img].getPath(), "\t" , self.catalog[img].getViewCount() )
         return True
 
-    def FindNextPhoto(self):
-        low_val=1
-        lowest=''
-        for k in self.catalog.keys():
-            vc= self.catalog[k].getViewCount()
-            if vc >= low_val:
-                pass
-            else:
-                lowest=k
-                low_val= vc
-        return self.catalog[lowest]
+    def SortCatalog(self):
+       return min(sorted(self.catalog, key=operator.attrgetter('view_count')))
+    
+    # GetNewImages()
+    # This method will make a request call to the wifi card and if a new image exists 
+    # stream the image down.
+    # CHANGES NEEDED TO WORK IN NEW ENVIRONMENT AND TO USE NEW DATA STRUCTURES
+    def GetNewImages(self, folder, save_path):
+        r = requests.get('http://ezshare.card/photo?fdir=' + folder,allow_redirects=False)
+        last=''
+        script = BeautifulSoup(r.text, 'lxml').find_all('title')
+        bt_redirect=False
+        if script:   
+            for s in script:
+                app.logger.info("checking Title:%s, type %s", s, type(s))
+                tmp=s.text
+                if "Photo Gallery" not in tmp:
+                    app.logger.info("BT redirect %s" , tmp)
+                    bt_redirect=True
+                    break
+        
+        else:
+            bt_redirect=False
+            # Was the request successful, continue to start pull the images down.
+            app.logger.info("status: %s, bt redirect %s" , r.status_code, bt_redirect)
+        if r.status_code == 200 and bt_redirect== False:
+            app.logger.info("history: %s\n %s\n %s\n %s" , r.history, r.headers, r.json, r.text)
 
-win = tk.Tk()
-win.geometry('800x500')  # set window size
-win.resizable(0, 0)  # fix window
-panel = tk.Label(win)
-panel.pack()
+            tags = BeautifulSoup(html, 'lxml').find_all('a')
+            app.logger.info("tags: %s", tags)
+            #Loop throught the 'a' tags to identify the download links. 
+            for t in tags:
+                link=t.attrs['href']
+                app.logger.info("link: %s" , link)
+                if ".JPG" in link:
+                    if "download" in link:
+                        #Once we have them, can we call them and save them. 
+                        url=SITE_BASE + link
+                        #split and get the JPG name 
+                        path=save_path + url.split("=")[1].split("&")[0]
+                        app.logger.info("PATH: %s", path)
+                        if not os.path.isfile(path):
+                            img=requests.get(url, stream=True)
+                            # If we get a successful response, stream the image to the path.
+                            if img.status_code == 200:
+                                with open(path, 'wb') as f:
+                                    img.raw.decode_content = True
+                                    shutil.copyfileobj(img.raw, f)
+                                    app.logger.info("found new image %s", path)
+                                    last=path
+        else:
+            app.logger.info('looking for last image')
+            last=str(max(glob.glob(save_path + '*.jpg'),key=os.path.getmtime))
+            app.logger.info("no new images, here's the last one %s" , last)
+        return last
 
-def next_img():
-    try:
-        img =  p.FindNextPhoto() # get the next image
-        img.incrementViewCount()
-        path=img.path
-    except StopIteration:
-        return  # if there are no more images, do nothing
 
-    # load the image and display it
-    im=Image.open(path)
-    sm_im=im.resize((400, 400) , Image.ANTIALIAS)
-    img = ImageTk.PhotoImage(sm_im)
-    print("Displaying " , path)
-    panel.img = img  # keep a reference so it's not garbage collected
-    panel['image'] = img
-    win.after(1000,next_img)
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+
+    dark_palette = QPalette()
+
+    dark_palette.setColor(QPalette.Window, QColor(53, 53, 53))
+    dark_palette.setColor(QPalette.WindowText, Qt.white)
+    dark_palette.setColor(QPalette.Base, QColor(25, 25, 25))
+    dark_palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
+    dark_palette.setColor(QPalette.ToolTipBase, Qt.white)
+    dark_palette.setColor(QPalette.ToolTipText, Qt.white)
+    dark_palette.setColor(QPalette.Text, Qt.white)
+    dark_palette.setColor(QPalette.Button, QColor(53, 53, 53))
+    dark_palette.setColor(QPalette.ButtonText, Qt.white)
+    dark_palette.setColor(QPalette.BrightText, Qt.red)
+    dark_palette.setColor(QPalette.Link, QColor(42, 130, 218))
+    dark_palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
+    dark_palette.setColor(QPalette.HighlightedText, Qt.black)
+    app.setStyle(QStyleFactory.create("Fusion"))
+    app.setPalette(dark_palette)
+    app.setStyleSheet("QToolTip { color: #ffffff; background-color: #000000; border: 1px solid white; }")
+
+    ex = App()
+    ex.show()
+    sys.exit(app.exec_())
+
+
+    p=photobooth()
+    p.Collect_Existing_Images()
+    p.PrintListPhotos()
 
 
 
-p=photobooth()
-p.Collect_Existing_Images()
-p.PrintListPhotos()
-next_img()
 
-win.mainloop()
+
 
